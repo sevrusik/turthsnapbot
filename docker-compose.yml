@@ -1,0 +1,132 @@
+services:
+  # FraudLens API (detection engine) - using embedded fraudlens
+  fraudlens-api:
+    build:
+      context: ./fraudlens
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+      - DEBUG=false
+    volumes:
+      - ./fraudlens/data:/app/data
+      - ./fraudlens/backend:/app/backend  # Mount backend for live code updates
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # TruthSnap Telegram Bot
+  truthsnap-bot:
+    build:
+      context: ./truthsnap-bot
+      dockerfile: Dockerfile
+    depends_on:
+      - fraudlens-api
+      - postgres
+      - redis
+      - minio
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - FRAUDLENS_API_URL=http://fraudlens-api:8000
+      - DATABASE_URL=postgresql://truthsnap:truthsnap_password_change_in_prod@postgres:5432/truthsnap
+      - REDIS_URL=redis://redis:6379/0
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=truthsnap-photos
+      - AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./truthsnap-bot:/app
+    restart: unless-stopped
+    command: python -m app.bot.main
+
+  # RQ Workers (analysis processing)
+  truthsnap-worker:
+    build:
+      context: ./truthsnap-bot
+      dockerfile: Dockerfile
+    depends_on:
+      - fraudlens-api
+      - postgres
+      - redis
+      - minio
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - FRAUDLENS_API_URL=http://fraudlens-api:8000
+      - DATABASE_URL=postgresql://truthsnap:truthsnap_password_change_in_prod@postgres:5432/truthsnap
+      - REDIS_URL=redis://redis:6379/0
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=truthsnap-photos
+      - AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./truthsnap-bot:/app
+    restart: unless-stopped
+    command: rq worker high default low --url redis://redis:6379/0
+    deploy:
+      replicas: 3
+
+  # PostgreSQL (persistent storage)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=truthsnap
+      - POSTGRES_USER=truthsnap
+      - POSTGRES_PASSWORD=truthsnap_password_change_in_prod
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./truthsnap-bot/migrations:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U truthsnap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (queue + cache)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  # RQ Dashboard (monitoring)
+  rq-dashboard:
+    image: eoranged/rq-dashboard
+    environment:
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379
+    ports:
+      - "9181:9181"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
