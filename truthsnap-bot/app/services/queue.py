@@ -40,7 +40,8 @@ class TaskQueue:
         photo_s3_key: str,
         tier: str,
         priority: str = "default",
-        scenario: str = None
+        scenario: str = None,
+        progress_message_id: int = None
     ) -> str:
         """
         Enqueue photo analysis task
@@ -53,6 +54,7 @@ class TaskQueue:
             tier: User subscription tier (free/pro)
             priority: Queue priority (high/default/low)
             scenario: Scenario context (adult_blackmail/teenager_sos/None)
+            progress_message_id: Message ID for progress updates (UX)
 
         Returns:
             job_id: Unique job ID
@@ -78,12 +80,13 @@ class TaskQueue:
             photo_s3_key=photo_s3_key,
             tier=tier,
             scenario=scenario,
+            progress_message_id=progress_message_id,
             job_timeout='5m',  # 5 minute timeout
             result_ttl=3600,  # Keep result for 1 hour
             failure_ttl=86400  # Keep failed jobs for 24 hours
         )
 
-        logger.info(f"Enqueued analysis job: {job.id} | user={user_id} | priority={priority} | scenario={scenario}")
+        logger.info(f"Enqueued analysis job: {job.id} | user={user_id} | priority={priority} | scenario={scenario} | progress_msg={progress_message_id}")
 
         return job.id
 

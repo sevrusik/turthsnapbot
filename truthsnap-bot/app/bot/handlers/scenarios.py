@@ -188,7 +188,7 @@ async def adult_blackmail_photo(message: Message, state: FSMContext):
         elif validation_report.result == ValidationResult.INVALID_FORMAT:
             await message.answer(
                 f"❌ {validation_report.reason}\n\n"
-                "Please send JPEG, PNG, or MPO images only."
+                "Please send JPEG, PNG, MPO, or HEIC images only."
             )
         elif validation_report.result == ValidationResult.AI_GENERATED:
             await message.answer(
@@ -228,7 +228,16 @@ async def adult_blackmail_photo(message: Message, state: FSMContext):
     tier = user['subscription_tier']
     priority = "high" if tier == "pro" else "default"
 
-    # Enqueue analysis
+    # Send initial progress message
+    progress_msg = await message.answer(
+        "🔬 <b>Forensic Analysis Started</b>\n\n"
+        "📊 Preparing analysis pipeline...\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Analysis in progress...</i>",
+        parse_mode="HTML"
+    )
+
+    # Enqueue analysis with progress tracking
     stage_start = time.time()
     queue = TaskQueue()
     job_id = queue.enqueue_analysis(
@@ -238,24 +247,12 @@ async def adult_blackmail_photo(message: Message, state: FSMContext):
         photo_s3_key=s3_key,
         tier="photo",
         priority=priority,
-        scenario="adult_blackmail"  # Pass scenario context
+        scenario="adult_blackmail",
+        progress_message_id=progress_msg.message_id  # Pass progress message ID
     )
     enqueue_duration = (time.time() - stage_start) * 1000
 
-    logger.info(f"[Adult Blackmail] Enqueued in {enqueue_duration:.0f}ms | job_id={job_id}")
-
-    # Response - Clinical tone
-    await message.answer(
-        "🔬 <b>Forensic Analysis Started</b>\n\n"
-        "📊 Running multi-layer detection:\n"
-        "• AI generation patterns\n"
-        "• Face-swap artifacts\n"
-        "• EXIF metadata validation\n"
-        "• Frequency domain analysis\n\n"
-        "⏱ ETA: 20-30 seconds\n"
-        f"<code>Job ID: {job_id[:8]}</code>",
-        parse_mode="HTML"
-    )
+    logger.info(f"[Adult Blackmail] Enqueued in {enqueue_duration:.0f}ms | job_id={job_id} | progress_msg={progress_msg.message_id}")
 
     # Decrement daily checks
     await user_repo.decrement_daily_checks(user_id)
@@ -327,7 +324,7 @@ async def adult_blackmail_document(message: Message, state: FSMContext):
         elif validation_report.result == ValidationResult.INVALID_FORMAT:
             await message.answer(
                 f"❌ {validation_report.reason}\n\n"
-                "Please send JPEG, PNG, or MPO images only."
+                "Please send JPEG, PNG, MPO, or HEIC images only."
             )
         elif validation_report.result == ValidationResult.AI_GENERATED:
             await message.answer(
@@ -366,6 +363,15 @@ async def adult_blackmail_document(message: Message, state: FSMContext):
     tier = user['subscription_tier']
     priority = "high" if tier == "pro" else "default"
 
+    # Send initial progress message
+    progress_msg = await message.answer(
+        "✅ <b>FULL METADATA PRESERVED</b>\n\n"
+        "🔬 Preparing forensic-grade analysis...\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Analysis in progress...</i>",
+        parse_mode="HTML"
+    )
+
     # Enqueue analysis - DOCUMENT tier (preserve EXIF)
     stage_start = time.time()
     queue = TaskQueue()
@@ -376,26 +382,12 @@ async def adult_blackmail_document(message: Message, state: FSMContext):
         photo_s3_key=s3_key,
         tier="document",  # PRESERVE EXIF
         priority=priority,
-        scenario="adult_blackmail"  # Pass scenario context
+        scenario="adult_blackmail",
+        progress_message_id=progress_msg.message_id  # Pass progress message ID
     )
     enqueue_duration = (time.time() - stage_start) * 1000
 
-    logger.info(f"[Adult Blackmail] Enqueued document in {enqueue_duration:.0f}ms | job_id={job_id}")
-
-    # Response - Emphasize EXIF value
-    await message.answer(
-        "✅ <b>FULL METADATA PRESERVED</b>\n\n"
-        "🔬 Running <b>forensic-grade analysis</b>:\n"
-        "• EXIF camera fingerprinting\n"
-        "• GPS coordinate validation\n"
-        "• Edit history timeline\n"
-        "• AI generation signatures\n"
-        "• Face-swap detection\n\n"
-        "⏱ ETA: 20-30 seconds\n"
-        f"<code>Job ID: {job_id[:8]}</code>\n\n"
-        "💡 This will provide the <b>strongest legal evidence</b>.",
-        parse_mode="HTML"
-    )
+    logger.info(f"[Adult Blackmail] Enqueued document in {enqueue_duration:.0f}ms | job_id={job_id} | progress_msg={progress_msg.message_id}")
 
     # Decrement daily checks
     await user_repo.decrement_daily_checks(user_id)
@@ -499,7 +491,17 @@ async def teenager_sos_photo(message: Message, state: FSMContext):
     tier = user['subscription_tier']
     priority = "high" if tier == "pro" else "default"
 
-    # Enqueue analysis
+    # Send initial progress message - empathetic tone
+    progress_msg = await message.answer(
+        "✅ <b>I'm analyzing this now</b>\n\n"
+        "Looking for technical mistakes...\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Analysis in progress...</i>\n\n"
+        "💙 Remember: <b>none of this is your fault</b>",
+        parse_mode="HTML"
+    )
+
+    # Enqueue analysis with progress tracking
     queue = TaskQueue()
     job_id = queue.enqueue_analysis(
         user_id=user_id,
@@ -508,20 +510,11 @@ async def teenager_sos_photo(message: Message, state: FSMContext):
         photo_s3_key=s3_key,
         tier="photo",
         priority=priority,
-        scenario="teenager_sos"  # Pass scenario context
+        scenario="teenager_sos",
+        progress_message_id=progress_msg.message_id  # Pass progress message ID
     )
 
-    logger.info(f"[Teenager SOS] Enqueued job {job_id}")
-
-    # Response - Empathetic tone
-    await message.answer(
-        "✅ <b>I'm analyzing this now</b>\n\n"
-        "I'm looking for technical mistakes in the photo.\n"
-        "If it's fake (which it probably is), I'll show you the proof.\n\n"
-        "⏱ This takes about 20-30 seconds.\n\n"
-        "While you wait: Remember that <b>none of this is your fault</b>.",
-        parse_mode="HTML"
-    )
+    logger.info(f"[Teenager SOS] Enqueued job {job_id} | progress_msg={progress_msg.message_id}")
 
     # Decrement daily checks
     await user_repo.decrement_daily_checks(user_id)
@@ -599,7 +592,16 @@ async def teenager_sos_document(message: Message, state: FSMContext):
     tier = user['subscription_tier']
     priority = "high" if tier == "pro" else "default"
 
-    # Enqueue
+    # Send initial progress message
+    progress_msg = await message.answer(
+        "✅ <b>I'm checking everything</b>\n\n"
+        "Examining all hidden data...\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Analysis in progress...</i>",
+        parse_mode="HTML"
+    )
+
+    # Enqueue with progress tracking
     queue = TaskQueue()
     job_id = queue.enqueue_analysis(
         user_id=user_id,
@@ -608,15 +610,8 @@ async def teenager_sos_document(message: Message, state: FSMContext):
         photo_s3_key=s3_key,
         tier="document",
         priority=priority,
-        scenario="teenager_sos"  # Pass scenario context
-    )
-
-    await message.answer(
-        "✅ <b>I'm checking everything</b>\n\n"
-        "Because you sent a file, I can see ALL the hidden data.\n"
-        "This makes it easier to prove if it's fake.\n\n"
-        "⏱ Give me 20-30 seconds...",
-        parse_mode="HTML"
+        scenario="teenager_sos",
+        progress_message_id=progress_msg.message_id  # Pass progress message ID
     )
 
     await user_repo.decrement_daily_checks(user_id)

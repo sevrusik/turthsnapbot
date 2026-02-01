@@ -33,7 +33,8 @@ def analyze_photo_task(
     message_id: int,
     photo_s3_key: str,
     tier: str,
-    scenario: str = None
+    scenario: str = None,
+    progress_message_id: int = None
 ):
     """
     Background task: Analyze photo
@@ -47,6 +48,7 @@ def analyze_photo_task(
         photo_s3_key: S3 key where photo is stored
         tier: User tier (free/pro)
         scenario: Scenario context (adult_blackmail/teenager_sos/None)
+        progress_message_id: Message ID for progress updates (UX improvement)
 
     Returns:
         {
@@ -63,14 +65,34 @@ def analyze_photo_task(
 
         # STAGE 2: Download photo from S3
         stage_start = time.time()
+
+        # Progress update: Downloading
+        if progress_message_id:
+            from services.progress_notifier import sync_update_progress
+            sync_update_progress(chat_id, progress_message_id, "downloading")
+
         s3 = S3Storage()
         photo_bytes = asyncio.run(s3.download(photo_s3_key))
         stage_duration = (time.time() - stage_start) * 1000
 
         logger.info(f"[Worker] ⏱️  STAGE 2/6: Downloaded {len(photo_bytes)} bytes from S3 in {stage_duration:.0f}ms")
 
+        # Progress update: EXIF extraction (happens inside API but we show it here)
+        if progress_message_id:
+            from services.progress_notifier import sync_update_progress
+            sync_update_progress(chat_id, progress_message_id, "exif")
+
+        # Small delay to let users see the EXIF stage
+        time.sleep(1)
+
         # STAGE 3: Call FraudLens API
         stage_start = time.time()
+
+        # Progress update: AI Detection (main stage)
+        if progress_message_id:
+            from services.progress_notifier import sync_update_progress
+            sync_update_progress(chat_id, progress_message_id, "ai")
+
         fraudlens = FraudLensClient()
 
         # Determine mode based on tier parameter
@@ -96,6 +118,19 @@ def analyze_photo_task(
 
         mode_label = "DOCUMENT (EXIF preserved)" if preserve_exif else "PHOTO (EXIF stripped)"
         logger.info(f"[Worker] ⏱️  STAGE 3/6: FraudLens API analysis completed in {stage_duration:.0f}ms | mode={mode_label} | verdict={result['verdict']} | confidence={result['confidence']:.2f}")
+
+        # Progress update: Frequency analysis (post-API visual feedback)
+        if progress_message_id:
+            from services.progress_notifier import sync_update_progress
+            sync_update_progress(chat_id, progress_message_id, "frequency")
+
+        # Small delay for UX
+        time.sleep(0.5)
+
+        # Progress update: Final scoring
+        if progress_message_id:
+            from services.progress_notifier import sync_update_progress
+            sync_update_progress(chat_id, progress_message_id, "scoring")
 
         # STAGE 4: Save to database + get user tier (combined async operation)
         stage_start = time.time()
