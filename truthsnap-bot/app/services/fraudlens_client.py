@@ -75,10 +75,10 @@ class FraudLensClient:
         }
 
         try:
-            logger.debug(f"Calling FraudLens API: {self.base_url}/api/v1/consumer/verify")
+            logger.debug(f"Calling FraudLens API: {self.base_url}/api/v1/verify")
 
             response = await self.client.post(
-                "/api/v1/consumer/verify",  # Consumer endpoint with OCR watermark + AI detection
+                "/api/v1/verify",  # Photo verification endpoint
                 files=files,
                 data=data  # Use data (not params) for Form fields
             )
@@ -146,7 +146,7 @@ class FraudLensClient:
             logger.debug(f"Generating PDF report via FraudLens API")
 
             response = await self.client.post(
-                "/api/v1/consumer/report/pdf",
+                "/api/v1/reports/pdf",
                 files=files,
                 data=data
             )

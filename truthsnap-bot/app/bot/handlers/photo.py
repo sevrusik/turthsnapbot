@@ -109,7 +109,7 @@ async def handle_photo(message: Message, state: FSMContext):
         elif validation_report.result == ValidationResult.INVALID_FORMAT:
             await message.answer(
                 f"❌ {validation_report.reason}\n\n"
-                "Please send JPEG, PNG, or MPO images only."
+                "Please send JPEG, PNG, MPO, or HEIC images only."
             )
         elif validation_report.result == ValidationResult.AI_GENERATED:
             await message.answer(
@@ -274,7 +274,7 @@ async def handle_document(message: Message, state: FSMContext):
         elif validation_report.result == ValidationResult.INVALID_FORMAT:
             await message.answer(
                 f"❌ {validation_report.reason}\n\n"
-                "Please send JPEG, PNG, or MPO images only."
+                "Please send JPEG, PNG, MPO, or HEIC images only."
             )
         elif validation_report.result == ValidationResult.AI_GENERATED:
             await message.answer(

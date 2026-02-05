@@ -2,11 +2,12 @@
 Image Validation and Screening
 
 Comprehensive pre-processing checks:
-- Format validation (JPEG/PNG)
+- Format validation (JPEG/PNG/HEIC)
 - File size limits
 - AI-generated image detection (metadata screening)
 - Screenshot detection
 - Perceptual hash (pHash) for duplicate detection
+- HEIC to JPEG conversion
 """
 
 import io
@@ -16,6 +17,15 @@ from PIL import Image, ExifTags
 import imagehash
 from dataclasses import dataclass
 from enum import Enum
+
+# Import pillow-heif for HEIC support
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIF_SUPPORT = True
+except ImportError:
+    HEIF_SUPPORT = False
+    logging.warning("pillow-heif not installed - HEIC/HEIF support disabled")
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +66,7 @@ class ImageValidator:
     """
 
     # Supported formats
-    ALLOWED_FORMATS = {'JPEG', 'PNG', 'MPO'}  # MPO = Multi-Picture Object (stereo JPEG)
+    ALLOWED_FORMATS = {'JPEG', 'PNG', 'MPO', 'HEIC', 'HEIF'}  # HEIC/HEIF = Apple's High Efficiency Image Format
 
     # AI generation software signatures
     AI_SOFTWARE_SIGNATURES = [
@@ -134,11 +144,45 @@ class ImageValidator:
             # 2. Load image and validate format
             image = Image.open(io.BytesIO(image_bytes))
 
+            # Convert HEIC/HEIF to JPEG for processing
+            if image.format in ('HEIC', 'HEIF'):
+                if not HEIF_SUPPORT:
+                    return ImageValidationReport(
+                        is_valid=False,
+                        result=ValidationResult.INVALID_FORMAT,
+                        reason="HEIC/HEIF format not supported (pillow-heif not installed)"
+                    )
+
+                logger.info(f"Converting {image.format} to JPEG for processing...")
+
+                # Preserve EXIF data before conversion
+                exif_data = image.info.get('exif', b'')
+
+                # Convert to RGB (HEIC can be in different color modes)
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+
+                # Convert to JPEG in memory with EXIF preservation
+                jpeg_buffer = io.BytesIO()
+                if exif_data:
+                    image.save(jpeg_buffer, format='JPEG', quality=95, exif=exif_data)
+                    logger.info(f"HEIC→JPEG with EXIF preserved ({len(exif_data)} bytes)")
+                else:
+                    image.save(jpeg_buffer, format='JPEG', quality=95)
+                    logger.warning(f"HEIC→JPEG: No EXIF data found in source")
+
+                jpeg_buffer.seek(0)
+                image_bytes = jpeg_buffer.getvalue()
+
+                # Reload as JPEG
+                image = Image.open(io.BytesIO(image_bytes))
+                logger.info(f"HEIC converted to JPEG successfully ({len(image_bytes)} bytes)")
+
             if image.format not in self.ALLOWED_FORMATS:
                 return ImageValidationReport(
                     is_valid=False,
                     result=ValidationResult.INVALID_FORMAT,
-                    reason=f"Unsupported format: {image.format}. Only JPEG/PNG/MPO allowed."
+                    reason=f"Unsupported format: {image.format}. Only JPEG/PNG/MPO/HEIC allowed."
                 )
 
             # 3. Extract metadata

@@ -80,7 +80,7 @@ services:
       - POSTGRES_USER=truthsnap
       - POSTGRES_PASSWORD=truthsnap_password_change_in_prod
     ports:
-      - "5432:5432"
+      - "5433:5432"  # Changed from 5432:5432 to avoid conflict with FraudLens
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./truthsnap-bot/migrations:/docker-entrypoint-initdb.d
@@ -95,7 +95,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"  # Changed from 6379:6379 to avoid conflict with FraudLens
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes

@@ -24,6 +24,11 @@ from bot.handlers import (
     counter_measures,
     parent_support
 )
+from bot.middlewares import (
+    LoggingMiddleware,
+    RateLimitMiddleware,
+    AdversarialProtectionMiddleware
+)
 from database.db import db
 
 # Configure logging
@@ -55,6 +60,23 @@ async def main():
 
     # Initialize dispatcher
     dp = Dispatcher(storage=storage)
+
+    # Register middlewares
+    # ORDER MATTERS: Logging first, then rate limiting, then adversarial protection
+    dp.message.middleware(LoggingMiddleware())
+    logger.info("✅ Logging middleware registered")
+
+    dp.message.middleware(
+        RateLimitMiddleware(
+            rate_limit=settings.RATE_LIMIT_PER_MINUTE,
+            window=60,
+            redis=redis  # Pass Redis client for distributed rate limiting
+        )
+    )
+    logger.info(f"✅ Rate limiting enabled: {settings.RATE_LIMIT_PER_MINUTE} messages per minute per user (Redis-backed)")
+
+    dp.message.middleware(AdversarialProtectionMiddleware(max_similar=10, window_hours=1))
+    logger.info("✅ Adversarial protection enabled")
 
     # Register handlers
     # ORDER MATTERS: Commands first, then specific states, then general handlers

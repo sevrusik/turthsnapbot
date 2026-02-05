@@ -16,6 +16,16 @@ import io
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
+# Import pillow-heif for HEIC support
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIF_SUPPORT = True
+except ImportError:
+    HEIF_SUPPORT = False
+    import logging
+    logging.warning("pillow-heif not installed - HEIC/HEIF support disabled in API")
+
 from backend.core.fraud_detector import FraudDetector
 from backend.integrations.watermark_detector import WatermarkDetector
 from backend.integrations.metadata import MetadataAnalyzer
@@ -23,6 +33,8 @@ from backend.integrations.metadata_validator import MetadataValidator
 from backend.integrations.fft_detector import FFTDetector
 from backend.integrations.face_swap_detector import FaceSwapDetector
 from backend.integrations.visual_watermark_detector import VisualWatermarkDetector
+from backend.integrations.prnu_detector import PRNUDetector
+from backend.integrations.intrinsic_detector import IntrinsicAIDetector
 from backend.core.database import save_consumer_analysis
 from backend.models.consumer import ConsumerVerificationResponse
 from backend.integrations.pdf_report import PDFReportGenerator
@@ -30,12 +42,270 @@ from backend.integrations.pdf_report import PDFReportGenerator
 router = APIRouter(prefix="/api/v1/consumer", tags=["consumer"])
 
 
+@router.post("/analyze")
+@router.post("/../analyze")  # Also handle /api/v1/analyze directly
+async def analyze_image_for_extension(
+    image: UploadFile = File(...),
+    claim_text: Optional[str] = Form(None),
+    source: Optional[str] = Form(None)  # Social media source (linkedin, instagram, etc.)
+):
+    """
+    Browser Extension Endpoint
+
+    Simplified endpoint for TruthSnap Lens browser extension.
+    Returns analysis in extension-compatible format.
+
+    Args:
+        image: Image file
+        claim_text: Optional claim text (ignored for now)
+        source: Optional social media source (linkedin, instagram, etc.)
+
+    Returns:
+        {
+            "fraud_score": 75,
+            "risk_level": "high",
+            "checks": [...],
+            "analysis_id": "...",
+            ...
+        }
+    """
+    import logging
+    import uuid
+    logger = logging.getLogger(__name__)
+
+    start_time = datetime.now()
+
+    try:
+        logger.info(f"[Extension API] Received image | size={image.size if hasattr(image, 'size') else 'unknown'} | source={source}")
+
+        # Validate file
+        if not image.content_type or not image.content_type.startswith('image/'):
+            raise HTTPException(400, "File must be an image")
+
+        # Read image
+        image_bytes = await image.read()
+
+        if len(image_bytes) == 0:
+            raise HTTPException(400, "Image file is empty")
+
+        logger.info(f"[Extension API] Read {len(image_bytes)} bytes")
+
+        # Validate image can be opened by PIL
+        try:
+            from PIL import Image as PILImage
+            import io as stdlib_io
+            img = PILImage.open(stdlib_io.BytesIO(image_bytes))
+            img.verify()
+
+            # Re-open for format check (verify() closes the file)
+            img = PILImage.open(stdlib_io.BytesIO(image_bytes))
+            logger.info(f"[Extension API] Image validated: {img.format} {img.size}")
+
+            # Convert HEIC/HEIF to JPEG for processing
+            if img.format in ('HEIC', 'HEIF'):
+                if not HEIF_SUPPORT:
+                    raise HTTPException(400, "HEIC/HEIF format not supported - please convert to JPEG")
+
+                logger.info(f"[Extension API] Converting {img.format} to JPEG...")
+
+                # Preserve EXIF data before conversion
+                exif_data = img.info.get('exif', b'')
+
+                # Convert to RGB
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+
+                # Convert to JPEG in memory with EXIF preservation
+                jpeg_buffer = stdlib_io.BytesIO()
+                if exif_data:
+                    img.save(jpeg_buffer, format='JPEG', quality=95, exif=exif_data)
+                    logger.info(f"[Extension API] HEIC→JPEG with EXIF preserved ({len(exif_data)} bytes)")
+                else:
+                    img.save(jpeg_buffer, format='JPEG', quality=95)
+                    logger.warning(f"[Extension API] HEIC→JPEG: No EXIF data in source")
+
+                jpeg_buffer.seek(0)
+                image_bytes = jpeg_buffer.getvalue()
+
+                logger.info(f"[Extension API] HEIC converted to JPEG ({len(image_bytes)} bytes)")
+
+        except HTTPException:
+            raise
+        except Exception as pil_error:
+            logger.error(f"[Extension API] Image validation failed: {pil_error}")
+            raise HTTPException(400, f"Invalid image file: {str(pil_error)}")
+
+        # Size limit: 20MB
+        if len(image_bytes) > 20 * 1024 * 1024:
+            raise HTTPException(400, "Image too large (max 20MB)")
+
+        # Run analysis using existing verify logic
+        # Initialize detectors
+        fraud_detector = FraudDetector()
+        watermark_detector = WatermarkDetector()
+        visual_watermark_detector = VisualWatermarkDetector()
+        metadata_analyzer = MetadataAnalyzer()
+        fft_detector = FFTDetector()
+        face_swap_detector = FaceSwapDetector()
+        metadata_validator = MetadataValidator(telegram_mode=True)  # Social media mode
+
+        # Save temp file for visual watermark
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+        temp_path = temp_file.name
+        temp_file.write(image_bytes)
+        temp_file.close()
+
+        try:
+            # Run detections in parallel
+            detection_task = asyncio.create_task(fraud_detector.detect_ai_generation(image_bytes))
+            watermark_task = asyncio.create_task(watermark_detector.detect(image_bytes))
+            visual_watermark_task = asyncio.create_task(asyncio.to_thread(visual_watermark_detector.detect_watermark, temp_path))
+            metadata_task = asyncio.create_task(metadata_analyzer.analyze(image_bytes))
+            validation_task = asyncio.create_task(metadata_validator.validate(image_bytes))
+            fft_task = asyncio.create_task(fft_detector.analyze(image_bytes))
+            face_swap_task = asyncio.create_task(face_swap_detector.analyze(image_bytes))
+
+            # PRNU + Intrinsic detection for social media platforms (LinkedIn, Instagram, etc.)
+            prnu_task = None
+            intrinsic_task = None
+            if source and source.lower() in ['linkedin', 'instagram', 'facebook', 'twitter', 'x']:
+                logger.info(f"[Extension API] Running PRNU + Intrinsic detection for {source}")
+                prnu_detector = PRNUDetector()
+                intrinsic_detector = IntrinsicAIDetector()
+                prnu_task = asyncio.create_task(prnu_detector.detect(temp_path, block_size=64, check_consistency=True))
+                intrinsic_task = asyncio.create_task(intrinsic_detector.detect(temp_path, is_screenshot=False))
+
+            # Await all
+            tasks = [detection_task, watermark_task, visual_watermark_task, metadata_task, validation_task, fft_task, face_swap_task]
+            if prnu_task:
+                tasks.append(prnu_task)
+            if intrinsic_task:
+                tasks.append(intrinsic_task)
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            detection_result = results[0]
+            watermark_result = results[1]
+            visual_watermark_result = results[2]
+            metadata_result = results[3]
+            validation_result = results[4]
+            fft_result = results[5]
+            face_swap_result = results[6]
+            prnu_result = results[7] if prnu_task else None
+            intrinsic_result = results[8] if intrinsic_task else None
+
+            # Handle errors
+            if isinstance(detection_result, Exception):
+                logger.error(f"[Extension API] Detection failed: {detection_result}", exc_info=detection_result)
+                raise HTTPException(500, f"AI detection failed: {str(detection_result)}")
+
+            # Determine verdict
+            verdict = determine_consumer_verdict(
+                detection_result,
+                watermark_result if not isinstance(watermark_result, Exception) else {"detected": False},
+                metadata_result if not isinstance(metadata_result, Exception) else {},
+                validation_result if not isinstance(validation_result, Exception) else {"score": 0, "risk_level": "UNKNOWN"},
+                fft_result if not isinstance(fft_result, Exception) else {"fft_score": 0.5},
+                face_swap_result if not isinstance(face_swap_result, Exception) else {"face_swap_score": 0.0, "faces_detected": 0},
+                visual_watermark_result if not isinstance(visual_watermark_result, Exception) else {"detected": False},
+                source_platform=source,
+                prnu=prnu_result if prnu_result and not isinstance(prnu_result, Exception) else None,
+                intrinsic=intrinsic_result if intrinsic_result and not isinstance(intrinsic_result, Exception) else None
+            )
+
+            # Convert to extension format
+            fraud_score = int(verdict["confidence"] * 100)
+
+            # Map verdict to risk_level
+            if verdict["status"] == "ai_generated":
+                risk_level = "CRITICAL" if fraud_score >= 90 else "HIGH"
+            elif verdict["status"] == "manipulated":
+                risk_level = "MODERATE"
+            elif verdict["status"] == "inconclusive":
+                risk_level = "MODERATE"
+            else:  # real
+                risk_level = "LOW"
+
+            # Build checks array from all detectors
+            checks = []
+
+            # AI detection check
+            if not isinstance(detection_result, Exception):
+                checks.append({
+                    "layer": "ai_detection",
+                    "score": detection_result.get("ai_score", 0) * 100,
+                    "confidence": detection_result.get("ai_score", 0),
+                    "reason": f"AI generation probability: {detection_result.get('ai_score', 0):.2%}",
+                    "details": detection_result
+                })
+
+            # Metadata validation check
+            if not isinstance(validation_result, Exception):
+                checks.append({
+                    "layer": "metadata_analysis",
+                    "score": validation_result.get("score", 0),
+                    "reason": validation_result.get("verdict", "Metadata analysis"),
+                    "details": {
+                        "exif_validation": {
+                            "valid": validation_result.get("score", 0) < 50,
+                            "red_flags": validation_result.get("red_flags", [])
+                        },
+                        "software": metadata_result.get("exif", {}).get("Software") if not isinstance(metadata_result, Exception) else None
+                    }
+                })
+
+            # Processing time
+            processing_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+
+            # Build response
+            response = {
+                "fraud_score": fraud_score,
+                "risk_level": risk_level,
+                "checks": checks,
+                "analysis_id": f"ext-{uuid.uuid4()}",
+                "timestamp": datetime.now().isoformat(),
+                "processing_time_ms": processing_time_ms,
+                "source": source,
+                "normalized": True if source else False,
+                "ai_detection": {
+                    "is_ai_generated": verdict["status"] == "ai_generated",
+                    "confidence": verdict["confidence"],
+                    "detection_method": "multi-layer-analysis",
+                    "ai_indicators": [verdict["reason"]]
+                },
+                "metadata_analysis": {
+                    "has_exif": bool(metadata_result.get("exif")) if not isinstance(metadata_result, Exception) else False,
+                    "anomalies": validation_result.get("red_flags", []) if not isinstance(validation_result, Exception) else []
+                }
+            }
+
+            logger.info(f"[Extension API] Analysis complete: verdict={verdict['status']}, score={fraud_score}, risk={risk_level}")
+
+            return JSONResponse(content=response)
+
+        finally:
+            # Cleanup temp file
+            try:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception:
+                pass
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Extension API] Error: {e}", exc_info=True)
+        raise HTTPException(500, f"Image processing error: {str(e)}")
+
+
 @router.post("/verify", response_model=ConsumerVerificationResponse)
 async def verify_photo(
     image: UploadFile = File(...),
     detail_level: str = Form("basic"),  # "basic" | "detailed"
     preserve_exif: bool = Form(False),  # True = document mode (full EXIF validation)
-    generate_pdf: bool = Form(False)  # True = also generate PDF report
+    generate_pdf: bool = Form(False),  # True = also generate PDF report
+    source: Optional[str] = Form(None)  # Social media source (linkedin, instagram, etc.)
 ):
     """
     Consumer-focused photo verification
@@ -78,7 +348,46 @@ async def verify_photo(
 
         logger.info(f"[API] ⏱️  STAGE 2: Read image in {stage_duration:.0f}ms | bytes={len(image_bytes)}")
 
-        # Size limit: 20MB
+        # Validate and convert HEIC if needed
+        try:
+            from PIL import Image as PILImage
+            import io as stdlib_io
+            img = PILImage.open(stdlib_io.BytesIO(image_bytes))
+
+            # Convert HEIC/HEIF to JPEG for processing
+            if img.format in ('HEIC', 'HEIF'):
+                if not HEIF_SUPPORT:
+                    raise HTTPException(400, "HEIC/HEIF format not supported - please convert to JPEG")
+
+                logger.info(f"[API] Converting {img.format} to JPEG...")
+
+                # Preserve EXIF data before conversion
+                exif_data = img.info.get('exif', b'')
+
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+
+                # Convert to JPEG in memory with EXIF preservation
+                jpeg_buffer = stdlib_io.BytesIO()
+                if exif_data:
+                    img.save(jpeg_buffer, format='JPEG', quality=95, exif=exif_data)
+                    logger.info(f"[API] HEIC→JPEG with EXIF preserved ({len(exif_data)} bytes)")
+                else:
+                    img.save(jpeg_buffer, format='JPEG', quality=95)
+                    logger.warning(f"[API] HEIC→JPEG: No EXIF data in source")
+
+                jpeg_buffer.seek(0)
+                image_bytes = jpeg_buffer.getvalue()
+
+                logger.info(f"[API] HEIC converted to JPEG ({len(image_bytes)} bytes)")
+
+        except HTTPException:
+            raise
+        except Exception as pil_error:
+            logger.error(f"[API] Image validation failed: {pil_error}")
+            raise HTTPException(400, f"Invalid image file: {str(pil_error)}")
+
+        # Size limit: 20MB (check after potential conversion)
         if len(image_bytes) > 20 * 1024 * 1024:
             raise HTTPException(400, "Image too large (max 20MB)")
 
@@ -91,11 +400,14 @@ async def verify_photo(
         fft_detector = FFTDetector()
         face_swap_detector = FaceSwapDetector()
         # Telegram mode: ON for photos (EXIF stripped), OFF for documents (EXIF preserved)
-        telegram_mode = not preserve_exif
-        metadata_validator = MetadataValidator(telegram_mode=telegram_mode)
+        # Social media platforms also strip EXIF - if source is provided, treat as telegram_mode
+        telegram_mode = not preserve_exif or source is not None
+        metadata_validator = MetadataValidator(telegram_mode=telegram_mode, source_platform=source)
         init_duration = (datetime.now() - stage_start).total_seconds() * 1000
 
         mode_label = "DOCUMENT (EXIF preserved)" if preserve_exif else "PHOTO (EXIF stripped)"
+        if source:
+            mode_label += f" | Source: {source}"
         logger.info(f"[API] ⏱️  STAGE 3: Initialized detectors in {init_duration:.0f}ms | Mode: {mode_label}")
 
         # Save image to temp file for visual watermark detection (needs path)
@@ -131,19 +443,42 @@ async def verify_photo(
             face_swap_detector.analyze(image_bytes)
         )
 
-        logger.info(f"[API] 🚀 STAGE 4: Running 7 detectors in parallel...")
+        # PRNU + Intrinsic detection for social media platforms (LinkedIn, Instagram, etc.)
+        prnu_task = None
+        intrinsic_task = None
+        if source and source.lower() in ['linkedin', 'instagram', 'facebook', 'twitter', 'x']:
+            logger.info(f"[API] Running PRNU + Intrinsic detection for {source}")
+            prnu_detector = PRNUDetector()
+            intrinsic_detector = IntrinsicAIDetector()
+            prnu_task = asyncio.create_task(prnu_detector.detect(temp_path, block_size=64, check_consistency=True))
+            intrinsic_task = asyncio.create_task(intrinsic_detector.detect(temp_path, is_screenshot=False))
+
+        detector_count = 7
+        if prnu_task:
+            detector_count += 1
+        if intrinsic_task:
+            detector_count += 1
+        logger.info(f"[API] 🚀 STAGE 4: Running {detector_count} detectors in parallel...")
 
         # Await all
-        detection_result, watermark_result, visual_watermark_result, metadata_result, validation_result, fft_result, face_swap_result = await asyncio.gather(
-            detection_task,
-            watermark_task,
-            visual_watermark_task,
-            metadata_task,
-            validation_task,
-            fft_task,
-            face_swap_task,
-            return_exceptions=True
-        )
+        tasks = [detection_task, watermark_task, visual_watermark_task, metadata_task, validation_task, fft_task, face_swap_task]
+        if prnu_task:
+            tasks.append(prnu_task)
+        if intrinsic_task:
+            tasks.append(intrinsic_task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        detection_result = results[0]
+        watermark_result = results[1]
+        visual_watermark_result = results[2]
+        metadata_result = results[3]
+        validation_result = results[4]
+        fft_result = results[5]
+        face_swap_result = results[6]
+        prnu_result = results[7] if prnu_task else None
+        intrinsic_result = results[8] if intrinsic_task else None
+
         detection_duration = (datetime.now() - stage_start).total_seconds() * 1000
 
         logger.info(f"[API] ⏱️  STAGE 5: All detections completed in {detection_duration:.0f}ms")
@@ -159,7 +494,7 @@ async def verify_photo(
         if isinstance(detection_result, Exception):
             raise HTTPException(500, f"AI detection failed: {str(detection_result)}")
 
-        # Determine final verdict using enhanced validation (10-layer + FFT + Face Swap + Visual Watermarks)
+        # Determine final verdict using enhanced validation (10-layer + FFT + Face Swap + Visual Watermarks + PRNU + Intrinsic)
         stage_start = datetime.now()
         verdict = determine_consumer_verdict(
             detection_result,
@@ -168,7 +503,10 @@ async def verify_photo(
             validation_result if not isinstance(validation_result, Exception) else {"score": 0, "risk_level": "UNKNOWN"},
             fft_result if not isinstance(fft_result, Exception) else {"fft_score": 0.5},
             face_swap_result if not isinstance(face_swap_result, Exception) else {"face_swap_score": 0.0, "faces_detected": 0},
-            visual_watermark_result if not isinstance(visual_watermark_result, Exception) else {"detected": False}
+            visual_watermark_result if not isinstance(visual_watermark_result, Exception) else {"detected": False},
+            source_platform=source,  # Pass social media source for normalization
+            prnu=prnu_result if prnu_result and not isinstance(prnu_result, Exception) else None,  # PRNU sensor noise
+            intrinsic=intrinsic_result if intrinsic_result and not isinstance(intrinsic_result, Exception) else None  # Intrinsic AI detection
         )
         verdict_duration = (datetime.now() - stage_start).total_seconds() * 1000
 
@@ -288,7 +626,7 @@ async def verify_photo(
             logger.warning(f"[API] Failed to cleanup temp file: {cleanup_error}")
 
 
-def determine_consumer_verdict(detection: dict, watermark: dict, metadata: dict, validation: dict, fft: dict, face_swap: dict, visual_watermark: dict = None) -> dict:
+def determine_consumer_verdict(detection: dict, watermark: dict, metadata: dict, validation: dict, fft: dict, face_swap: dict, visual_watermark: dict = None, source_platform: str = None, prnu: dict = None, intrinsic: dict = None) -> dict:
     """
     НОВАЯ ЛОГИКА: Weighted Average вместо логики "ИЛИ"
 
@@ -302,6 +640,11 @@ def determine_consumer_verdict(detection: dict, watermark: dict, metadata: dict,
     1. Watermark detection → definitive AI
     2. AI software в EXIF (Midjourney, DALL-E) → definitive AI
     3. Trusted software (Lightroom) → требует визуальных доказательств
+
+    Args:
+        source_platform: Social media platform (linkedin, instagram, etc.)
+                        If set, applies platform-specific normalization
+        prnu: PRNU sensor noise detection results (for social media photos)
 
     Returns:
         {
@@ -415,6 +758,125 @@ def determine_consumer_verdict(detection: dict, watermark: dict, metadata: dict,
             logger.info(f"[Verdict] Stock photo detected: {reason}")
             break
 
+    # SOCIAL MEDIA PLATFORM NORMALIZATION (PRNU-BASED)
+    # Use PRNU sensor noise as primary indicator for real photos
+    # PRNU survives LinkedIn/Instagram compression - it's embedded in pixels
+    social_media_reduction = 0.0
+    if source_platform:
+        platform_lower = source_platform.lower()
+        if platform_lower in ['linkedin', 'instagram', 'facebook', 'twitter', 'x']:
+            # PRNU-BASED DECISION:
+            # - Has PRNU (sensor noise) → Real photo from camera
+            # - No PRNU → AI-generated (no physical sensor)
+
+            if prnu and isinstance(prnu, dict):
+                has_prnu = prnu.get('details', {}).get('has_prnu', False)
+                prnu_strength = prnu.get('details', {}).get('prnu_strength', 0.0)
+                prnu_fraud_score = prnu.get('fraud_score', 0)
+
+                logger.info(f"[Verdict] PRNU Analysis: has_prnu={has_prnu}, strength={prnu_strength:.3f}, fraud_score={prnu_fraud_score}")
+
+                # Check for synthetic noise (AI generators add fake noise for realism)
+                image_format = metadata.get("format", "").upper() if isinstance(metadata, dict) else ""
+                is_png = image_format == "PNG"
+
+                # PNG + FFT>0.65 + PRNU = AI with synthetic noise
+                # Lower threshold for PNG (0.65 instead of 0.75) because:
+                # - Real photos are JPEG (cameras don't shoot PNG)
+                # - PNG + any significant FFT score + PRNU = AI with fake noise
+                medium_high_fft = fft_score > 0.65 if is_png else fft_score > 0.75
+
+                # PNG + medium-high FFT + PRNU = AI with synthetic noise (not real camera sensor)
+                if is_png and medium_high_fft and has_prnu:
+                    # AI PHOTO with synthetic noise: NO normalization + BOOST score
+                    logger.info(f"[Verdict] 🤖 AI with SYNTHETIC NOISE: PNG + FFT={fft_score:.2f} + PRNU={prnu_strength:.3f}")
+                    logger.info(f"[Verdict]    Real cameras shoot JPEG, not PNG → This is AI-generated fake noise")
+                    logger.info(f"[Verdict]    No normalization applied - keeping original high scores")
+
+                    # BOOST: Synthetic noise is SMOKING GUN for AI
+                    # Increase metadata_risk to reflect PNG + fake noise
+                    metadata_risk = min(1.0, metadata_risk + 0.25)  # +25% penalty for synthetic noise
+                    logger.info(f"[Verdict]    📈 BOOST: metadata_risk increased by +0.25 for synthetic noise → {metadata_risk:.2f}")
+
+                    # BOOST 2: Add intrinsic score if available
+                    if intrinsic and isinstance(intrinsic, dict):
+                        intrinsic_score = intrinsic.get('total_score', 0) / 100.0  # Normalize to 0-1
+                        intrinsic_confidence = intrinsic.get('confidence', 0.0)
+                        intrinsic_methods = intrinsic.get('detection_methods', [])
+
+                        if intrinsic_score > 0.5:  # High intrinsic score
+                            logger.info(f"[Verdict]    📈 INTRINSIC BOOST: score={intrinsic_score:.2f}, methods={intrinsic_methods}")
+                            # Add intrinsic score to metadata_risk
+                            metadata_risk = min(1.0, metadata_risk + intrinsic_score * 0.3)  # Up to +30% boost
+
+                # Strong PRNU + JPEG format = Could be real camera OR AI with LinkedIn conversion
+                # Check intrinsic detector to distinguish
+                elif has_prnu and prnu_strength > 0.15 and prnu_fraud_score < 30 and not is_png:
+                    # Check intrinsic detector for camera fingerprints
+                    intrinsic_ai_score = 0
+                    if intrinsic and isinstance(intrinsic, dict):
+                        intrinsic_ai_score = intrinsic.get('total_score', 0) / 100.0
+                        intrinsic_methods = intrinsic.get('detection_methods', [])
+                        logger.info(f"[Verdict] 📊 Intrinsic analysis: score={intrinsic_ai_score:.2f}, methods={intrinsic_methods}")
+
+                    # If JPEG + high FFT → AI (social media converted PNG to JPEG)
+                    # Facebook/LinkedIn normalize images, so intrinsic may be clean (score=0)
+                    # BUT high FFT score is still a strong AI indicator
+                    high_fft_jpeg = fft_score > 0.75
+
+                    # Decision: high FFT alone is enough (intrinsic may be unreliable on social media)
+                    if high_fft_jpeg:
+                        # AI PHOTO: Social media converted PNG→JPEG, but FFT artifacts remain
+                        logger.info(f"[Verdict] 🤖 AI CONVERTED TO JPEG: High FFT ({fft_score:.2f}) despite PRNU ({prnu_strength:.3f})")
+                        logger.info(f"[Verdict]    Social media ({source_platform}) converted PNG→JPEG")
+                        logger.info(f"[Verdict]    FFT GAN artifacts survive compression → AI photo")
+                        logger.info(f"[Verdict]    Intrinsic score: {intrinsic_ai_score:.2f} (may be normalized by platform)")
+                        # NO normalization - keep high scores
+                        metadata_risk = min(1.0, metadata_risk + 0.35)  # +35% boost (increased from 30%)
+                    else:
+                        # REAL PHOTO: Apply aggressive normalization
+                        fft_score = fft_score * 0.4  # Reduce FFT by 60%
+                        ai_heuristic = ai_heuristic * 0.6  # Reduce AI by 40%
+                        social_media_reduction = 0.20  # +20% reduction
+                        logger.info(f"[Verdict] 📸 REAL PHOTO (PRNU detected): Aggressive normalization applied")
+                        logger.info(f"[Verdict]    PRNU strength={prnu_strength:.3f} + Low intrinsic ({intrinsic_ai_score:.2f}) → Real camera")
+
+                # No PRNU or weak = Likely AI
+                elif not has_prnu or prnu_strength < 0.10:
+                    # AI PHOTO: No normalization - keep original scores
+                    logger.info(f"[Verdict] 🤖 AI SUSPECTED (No PRNU): No normalization applied")
+                    logger.info(f"[Verdict]    PRNU strength={prnu_strength:.3f} → No camera sensor noise")
+
+                # Medium PRNU with high fraud score = Manipulated
+                elif prnu_fraud_score >= 30:
+                    # MANIPULATED: Minimal normalization
+                    fft_score = fft_score * 0.85
+                    ai_heuristic = ai_heuristic * 0.90
+                    social_media_reduction = 0.05
+                    logger.info(f"[Verdict] ⚠️ MANIPULATED (PRNU inconsistent): Minimal normalization")
+                    logger.info(f"[Verdict]    PRNU fraud_score={prnu_fraud_score} → Splice/edit detected")
+
+            else:
+                # FALLBACK: No PRNU data available, use old logic
+                logger.warning(f"[Verdict] ⚠️ No PRNU data available, using fallback normalization")
+                image_format = metadata.get("format", "").upper() if isinstance(metadata, dict) else ""
+                is_png = image_format == "PNG"
+                high_fft = fft_score > 0.75
+                high_metadata = validation_score >= 30
+
+                if is_png and high_fft and high_metadata:
+                    # Likely AI
+                    fft_score = fft_score * 0.85
+                    ai_heuristic = ai_heuristic * 0.90
+                    social_media_reduction = 0.05
+                    logger.info(f"[Verdict] Fallback: AI suspected (PNG + high FFT)")
+                else:
+                    # Likely real
+                    fft_score = fft_score * 0.5
+                    ai_heuristic = ai_heuristic * 0.7
+                    social_media_reduction = 0.15
+                    logger.info(f"[Verdict] Fallback: Real suspected")
+
     # WEIGHTED AVERAGE FORMULA (IMPROVED)
     # AI heuristics: 35% (basic patterns)
     # FFT: 30% (frequency domain - reduced from 40% due to false positives on JPEG compression)
@@ -429,7 +891,7 @@ def determine_consumer_verdict(detection: dict, watermark: dict, metadata: dict,
         (fft_score * 0.30) +
         (metadata_risk * 0.25) +
         (face_swap_score * 0.10 if faces_detected > 0 else 0)
-    )
+    ) - social_media_reduction
 
     # BONUS: Good metadata reduces suspicion
     # If metadata risk is LOW (<40) and device is known, boost confidence in "real"

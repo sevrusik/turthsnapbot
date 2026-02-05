@@ -64,14 +64,17 @@ class MetadataValidator:
         "imagen", "edited with google ai", "generative fill"
     ]
 
-    def __init__(self, telegram_mode: bool = False):
+    def __init__(self, telegram_mode: bool = False, source_platform: str = None):
         """
         Args:
             telegram_mode: If True, adjusts scoring for Telegram context
                           (where EXIF is stripped automatically)
+            source_platform: Social media platform (linkedin, instagram, etc.)
+                           If set, applies platform-specific normalization
         """
         self.enabled = True
         self.telegram_mode = telegram_mode
+        self.source_platform = source_platform
 
     async def validate(self, image_bytes: bytes) -> Dict:
         """
@@ -869,7 +872,22 @@ class MetadataValidator:
         Messaging apps strip ALL forensic metadata.
 
         UPDATED: Skip check for stock photos (they also strip EXIF)
+        UPDATED: Skip check for known social media platforms (LinkedIn, Instagram, etc.)
         """
+        # Skip check if source platform is known (LinkedIn, Instagram, etc.)
+        if self.source_platform:
+            platform_name = self.source_platform.lower()
+            # Social media platforms that strip EXIF
+            known_platforms = ['linkedin', 'instagram', 'facebook', 'twitter', 'x']
+            if platform_name in known_platforms:
+                return {
+                    "layer": "Messaging App Detection",
+                    "status": "PASS",
+                    "score": 0,
+                    "reason": f"Image from {self.source_platform} (EXIF stripped by platform)",
+                    "description": f"{self.source_platform} strips EXIF metadata - this is expected behavior"
+                }
+
         # Check for stock photo services first
         copyright_info = exif_data.get("Copyright", "").lower()
         stock_photo_services = [
