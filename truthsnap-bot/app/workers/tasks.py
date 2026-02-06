@@ -93,8 +93,6 @@ def analyze_photo_task(
             from services.progress_notifier import sync_update_progress
             sync_update_progress(chat_id, progress_message_id, "ai")
 
-        fraudlens = FraudLensClient()
-
         # Determine mode based on tier parameter
         # tier can be: "photo", "document", "free", "pro"
         is_document = (tier == "document")
@@ -111,9 +109,12 @@ def analyze_photo_task(
             detail_level = "basic"
             preserve_exif = False
 
-        result = asyncio.run(
-            fraudlens.verify_photo(photo_bytes, detail_level, preserve_exif=preserve_exif)
-        )
+        # Use async context manager to properly close HTTP client
+        async def call_fraudlens_api():
+            async with FraudLensClient() as fraudlens:
+                return await fraudlens.verify_photo(photo_bytes, detail_level, preserve_exif=preserve_exif)
+
+        result = asyncio.run(call_fraudlens_api())
         stage_duration = (time.time() - stage_start) * 1000
 
         mode_label = "DOCUMENT (EXIF preserved)" if preserve_exif else "PHOTO (EXIF stripped)"
@@ -183,9 +184,6 @@ def analyze_photo_task(
         # STAGE 6: Keep photo in S3 for PDF generation (DON'T delete immediately)
         # Photo will be automatically cleaned up by S3 lifecycle policy (e.g., 24 hours)
         logger.info(f"[Worker] ⏱️  STAGE 6/6: Photo kept in S3 for PDF generation: {photo_s3_key}")
-
-        # Note: Don't close clients here - it causes event loop issues
-        # Clients will be garbage collected after task completes
 
         total_duration = (time.time() - start_time) * 1000
         logger.info(f"[Worker] ✅ COMPLETED: Total analysis time {total_duration:.0f}ms ({total_duration/1000:.1f}s) for user {user_id}")
