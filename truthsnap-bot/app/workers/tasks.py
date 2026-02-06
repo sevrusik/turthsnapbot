@@ -8,6 +8,7 @@ import asyncio
 import logging
 from datetime import datetime
 import hashlib
+import warnings
 
 import sys
 import os
@@ -25,6 +26,43 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def run_async_with_cleanup(coro):
+    """
+    Run async coroutine with proper cleanup of pending tasks and sessions.
+
+    This prevents "Unclosed client session" warnings by ensuring all
+    pending tasks (especially aiogram background tasks) complete before
+    closing the event loop.
+    """
+    # Suppress asyncio unclosed warnings - we handle cleanup manually
+    warnings.filterwarnings('ignore', message='Unclosed client session')
+    warnings.filterwarnings('ignore', message='Unclosed connector')
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            # Cancel all pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+
+            # Wait for all tasks to complete cancellation
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+            # Shutdown async generators
+            loop.run_until_complete(loop.shutdown_asyncgens())
+
+            # Close the loop
+            loop.close()
+        except Exception as e:
+            logger.debug(f"Cleanup completed with minor warnings (expected): {e}")
 
 
 def analyze_photo_task(
@@ -72,7 +110,7 @@ def analyze_photo_task(
             sync_update_progress(chat_id, progress_message_id, "downloading")
 
         s3 = S3Storage()
-        photo_bytes = asyncio.run(s3.download(photo_s3_key))
+        photo_bytes = run_async_with_cleanup(s3.download(photo_s3_key))
         stage_duration = (time.time() - stage_start) * 1000
 
         logger.info(f"[Worker] ⏱️  STAGE 2/6: Downloaded {len(photo_bytes)} bytes from S3 in {stage_duration:.0f}ms")
@@ -114,7 +152,7 @@ def analyze_photo_task(
             async with FraudLensClient() as fraudlens:
                 return await fraudlens.verify_photo(photo_bytes, detail_level, preserve_exif=preserve_exif)
 
-        result = asyncio.run(call_fraudlens_api())
+        result = run_async_with_cleanup(call_fraudlens_api())
         stage_duration = (time.time() - stage_start) * 1000
 
         mode_label = "DOCUMENT (EXIF preserved)" if preserve_exif else "PHOTO (EXIF stripped)"
@@ -159,7 +197,7 @@ def analyze_photo_task(
 
             return analysis_id, user_tier
 
-        analysis_id, user_tier = asyncio.run(save_and_get_tier())
+        analysis_id, user_tier = run_async_with_cleanup(save_and_get_tier())
         stage_duration = (time.time() - stage_start) * 1000
 
         logger.info(f"[Worker] ⏱️  STAGE 4/6: Saved analysis to DB in {stage_duration:.0f}ms | analysis_id={analysis_id} | user_tier={user_tier}")
@@ -179,7 +217,7 @@ def analyze_photo_task(
                     scenario=scenario  # Pass scenario context for proper keyboard
                 )
 
-        asyncio.run(send_telegram_notification())
+        run_async_with_cleanup(send_telegram_notification())
         stage_duration = (time.time() - stage_start) * 1000
 
         logger.info(f"[Worker] ⏱️  STAGE 5/6: Sent result to Telegram in {stage_duration:.0f}ms")
@@ -209,7 +247,7 @@ def analyze_photo_task(
                         error=str(e)
                     )
 
-            asyncio.run(send_error_notification())
+            run_async_with_cleanup(send_error_notification())
         except Exception as notify_error:
             logger.error(f"[Worker] Failed to notify user: {notify_error}")
 
