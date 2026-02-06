@@ -166,17 +166,20 @@ def analyze_photo_task(
 
         # STAGE 5: Send result back to user via Telegram
         stage_start = time.time()
-        notifier = BotNotifier()
-        asyncio.run(
-            notifier.send_analysis_result(
-                chat_id=chat_id,
-                message_id=message_id,
-                result=result,
-                tier=user_tier,  # Use actual subscription tier (free/pro), not upload mode
-                analysis_id=analysis_id,
-                scenario=scenario  # Pass scenario context for proper keyboard
-            )
-        )
+
+        # Use async context manager to properly close bot session
+        async def send_telegram_notification():
+            async with BotNotifier() as notifier:
+                await notifier.send_analysis_result(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    result=result,
+                    tier=user_tier,  # Use actual subscription tier (free/pro), not upload mode
+                    analysis_id=analysis_id,
+                    scenario=scenario  # Pass scenario context for proper keyboard
+                )
+
+        asyncio.run(send_telegram_notification())
         stage_duration = (time.time() - stage_start) * 1000
 
         logger.info(f"[Worker] ⏱️  STAGE 5/6: Sent result to Telegram in {stage_duration:.0f}ms")
@@ -198,14 +201,15 @@ def analyze_photo_task(
 
         # Notify user about error
         try:
-            notifier = BotNotifier()
-            asyncio.run(
-                notifier.send_error_message(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    error=str(e)
-                )
-            )
+            async def send_error_notification():
+                async with BotNotifier() as notifier:
+                    await notifier.send_error_message(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        error=str(e)
+                    )
+
+            asyncio.run(send_error_notification())
         except Exception as notify_error:
             logger.error(f"[Worker] Failed to notify user: {notify_error}")
 
