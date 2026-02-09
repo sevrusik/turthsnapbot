@@ -59,36 +59,12 @@ async def handle_pdf_report(callback: CallbackQuery):
             logger.warning(f"[Callback] Unauthorized PDF request: user {user_id} tried to access {analysis_id}")
             return
 
-        # Get photo from S3
-        photo_s3_key = analysis.get('photo_s3_key')
-        if not photo_s3_key:
-            await callback.answer(
-                "❌ Photo no longer available\n\nPhotos are deleted after 24 hours for privacy.",
-                show_alert=True
-            )
-            logger.warning(f"[Callback] No S3 key for analysis: {analysis_id}")
-            return
-
-        s3 = S3Storage()
-        try:
-            photo_bytes = await s3.download(photo_s3_key)
-        except Exception as e:
-            await callback.answer(
-                "❌ Photo expired or deleted\n\nPhotos are kept for 24 hours only.",
-                show_alert=True
-            )
-            logger.error(f"[Callback] Failed to download photo from S3: {e}")
-            return
-
-        # Generate PDF via FraudLens API
+        # Generate PDF via FraudLens API (uses stored analysis data)
         fraudlens = FraudLensClient()
-        preserve_exif = analysis.get('preserve_exif', False)
 
         try:
             pdf_bytes = await fraudlens.generate_pdf_report(
-                image_bytes=photo_bytes,
-                preserve_exif=preserve_exif,
-                include_image=True
+                analysis_id=analysis_id
             )
 
             logger.info(f"[Callback] Generated PDF: {len(pdf_bytes)} bytes for {analysis_id}")

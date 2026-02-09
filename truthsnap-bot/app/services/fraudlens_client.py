@@ -115,17 +115,13 @@ class FraudLensClient:
 
     async def generate_pdf_report(
         self,
-        image_bytes: bytes,
-        preserve_exif: bool = False,
-        include_image: bool = True
+        analysis_id: str
     ) -> bytes:
         """
-        Generate PDF forensic report
+        Generate PDF forensic report from existing analysis
 
         Args:
-            image_bytes: Photo binary data
-            preserve_exif: True if sent as document (EXIF preserved)
-            include_image: Whether to embed image in PDF
+            analysis_id: Analysis ID from previous verification
 
         Returns:
             PDF file as bytes
@@ -133,22 +129,12 @@ class FraudLensClient:
         Raises:
             AnalysisError: If PDF generation fails
         """
-        files = {
-            "image": ("photo.jpg", image_bytes, "image/jpeg")
-        }
-
-        data = {
-            "preserve_exif": str(preserve_exif).lower(),
-            "include_image": str(include_image).lower()
-        }
-
         try:
-            logger.debug(f"Generating PDF report via FraudLens API")
+            logger.debug(f"Generating PDF report for analysis {analysis_id}")
 
             response = await self.client.post(
-                "/api/v1/reports/pdf",
-                files=files,
-                data=data
+                "/api/v1/consumer/report/pdf",
+                json={"report_id": analysis_id}
             )
 
             response.raise_for_status()
@@ -156,7 +142,7 @@ class FraudLensClient:
             # Response is raw PDF bytes
             pdf_bytes = response.content
 
-            logger.info(f"Generated PDF report: {len(pdf_bytes)} bytes")
+            logger.info(f"Generated PDF report: {len(pdf_bytes)} bytes for {analysis_id}")
 
             return pdf_bytes
 
