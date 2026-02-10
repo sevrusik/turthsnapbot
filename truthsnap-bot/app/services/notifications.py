@@ -454,23 +454,11 @@ class BotNotifier:
         # Processing time
         processing_ms = result.get('processing_time_ms', 0)
 
-        # Build message based on tier
-        if tier == 'pro':
-            # ENHANCED MESSAGE FOR PRO USERS
-            message = await self._build_pro_message(
-                emoji, verdict_label, confidence, result,
-                processing_ms, analysis_id, verdict
-            )
-        else:
-            # BASIC MESSAGE FOR FREE USERS (current format)
-            message = self._build_free_message(
-                emoji, verdict_label, confidence, result,
-                processing_ms, verdict
-            )
-
-        # Add upgrade CTA for free users
-        if tier == 'free':
-            message += "\n\n💎 <b>Want detailed analysis?</b> /subscribe"
+        # Always show full PRO message for all users
+        message = await self._build_pro_message(
+            emoji, verdict_label, confidence, result,
+            processing_ms, analysis_id, verdict
+        )
 
         # Build keyboard based on scenario
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
