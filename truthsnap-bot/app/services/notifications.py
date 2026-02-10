@@ -464,13 +464,13 @@ class BotNotifier:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
         if scenario == "adult_blackmail":
-            # Adult Blackmail scenario - show Counter-measures + PDF
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(
-                    text="📄 Get Forensic PDF",
-                    callback_data=f"pdf_report:{analysis_id}"
-                )
-            ])
+            # Adult Blackmail scenario - show Counter-measures only (PDF hidden for testing)
+            # keyboard.inline_keyboard.append([
+            #     InlineKeyboardButton(
+            #         text="📄 Get Forensic PDF",
+            #         callback_data=f"pdf_report:{analysis_id}"
+            #     )
+            # ])
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
                     text="🛡️ Counter-measures",
@@ -485,13 +485,13 @@ class BotNotifier:
             ])
 
         elif scenario == "teenager_sos":
-            # Teenager SOS scenario - show Parent Help + Stop Spread
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(
-                    text="📄 Get PDF Report",
-                    callback_data=f"pdf_report:{analysis_id}"
-                )
-            ])
+            # Teenager SOS scenario - show Parent Help + Stop Spread (PDF hidden for testing)
+            # keyboard.inline_keyboard.append([
+            #     InlineKeyboardButton(
+            #         text="📄 Get PDF Report",
+            #         callback_data=f"pdf_report:{analysis_id}"
+            #     )
+            # ])
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
                     text="🤝 How to tell my parents",
@@ -518,13 +518,13 @@ class BotNotifier:
             ])
 
         else:
-            # Legacy flow (no scenario) - show basic buttons
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(
-                    text="📄 Get PDF Report",
-                    callback_data=f"pdf_report:{analysis_id}"
-                )
-            ])
+            # Legacy flow (no scenario) - show basic buttons (PDF hidden for testing)
+            # keyboard.inline_keyboard.append([
+            #     InlineKeyboardButton(
+            #         text="📄 Get PDF Report",
+            #         callback_data=f"pdf_report:{analysis_id}"
+            #     )
+            # ])
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
                     text="📤 Share Result",
