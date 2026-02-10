@@ -517,20 +517,35 @@ class BotNotifier:
                 )
             ])
 
-        else:
-            # Legacy flow (no scenario) - show basic buttons (PDF hidden for testing)
-            # keyboard.inline_keyboard.append([
-            #     InlineKeyboardButton(
-            #         text="📄 Get PDF Report",
-            #         callback_data=f"pdf_report:{analysis_id}"
-            #     )
-            # ])
+        elif scenario == "general":
+            # General analysis (no specific threat) - educational buttons
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text="ℹ️ What is AI-generated content?",
+                    callback_data="general:ai_info"
+                )
+            ])
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text="🔍 How to spot fake images",
+                    callback_data="general:spotting_guide"
+                )
+            ])
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
                     text="📤 Share Result",
                     switch_inline_query=f"Analysis: {verdict_label}"
                 )
             ])
+            keyboard.inline_keyboard.append([
+                InlineKeyboardButton(
+                    text="🔙 Back to Main Menu",
+                    callback_data="scenario:select"
+                )
+            ])
+
+        else:
+            # Fallback (should not happen) - minimal buttons
             keyboard.inline_keyboard.append([
                 InlineKeyboardButton(
                     text="🔙 Back to Main Menu",

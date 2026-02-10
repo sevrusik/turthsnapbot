@@ -143,3 +143,83 @@ async def adult_get_forensic_pdf(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"[Adult Forensic PDF] Error: {e}")
         await callback.answer("❌ Error", show_alert=True)
+
+@router.callback_query(F.data == "general:ai_info")
+async def general_ai_info(callback: CallbackQuery):
+    """
+    General Analysis - What is AI-generated content
+    """
+    
+    await callback.answer()
+    
+    message = (
+        "ℹ️ <b>What is AI-Generated Content?</b>\n\n"
+        
+        "AI image generators like Midjourney, DALL-E, Stable Diffusion, and others "
+        "can create photorealistic images from text descriptions.\n\n"
+        
+        "<b>Common Uses:</b>\n"
+        "• Art and design\n"
+        "• Marketing materials\n"
+        "• Social media content\n"
+        "• Unfortunately: deepfakes and scams\n\n"
+        
+        "<b>How We Detect It:</b>\n"
+        "🔍 Watermark analysis\n"
+        "📸 Metadata inspection\n"
+        "🤖 AI pattern detection\n"
+        "🔬 Pixel-level forensics\n\n"
+        
+        "<i>Our AI detection models analyze multiple layers "
+        "to determine if an image is synthetic or authentic.</i>"
+    )
+    
+    await callback.message.answer(
+        message,
+        parse_mode="HTML"
+    )
+    
+    logger.info(f"[General] Sent AI info to user {callback.from_user.id}")
+
+
+@router.callback_query(F.data == "general:spotting_guide")
+async def general_spotting_guide(callback: CallbackQuery):
+    """
+    General Analysis - How to spot fake images
+    """
+    
+    await callback.answer()
+    
+    message = (
+        "🔍 <b>How to Spot Fake Images</b>\n\n"
+        
+        "<b>🚩 Visual Red Flags:</b>\n"
+        "• Unnatural lighting or shadows\n"
+        "• Distorted hands or fingers\n"
+        "• Blurry or missing text\n"
+        "• Warped backgrounds\n"
+        "• Asymmetric faces\n"
+        "• Impossible physics\n\n"
+        
+        "<b>📱 Technical Signs:</b>\n"
+        "• Missing EXIF metadata\n"
+        "• No camera/device info\n"
+        "• Suspicious file creation dates\n"
+        "• AI software signatures\n\n"
+        
+        "<b>✅ Authentic Photos Usually Have:</b>\n"
+        "• Camera make/model\n"
+        "• GPS coordinates\n"
+        "• Original timestamp\n"
+        "• Realistic imperfections\n\n"
+        
+        "💡 <b>Pro Tip:</b> Always cross-check multiple sources "
+        "and trust your instincts if something feels \"off\"!"
+    )
+    
+    await callback.message.answer(
+        message,
+        parse_mode="HTML"
+    )
+    
+    logger.info(f"[General] Sent spotting guide to user {callback.from_user.id}")

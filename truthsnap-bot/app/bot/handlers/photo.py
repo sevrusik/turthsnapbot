@@ -167,18 +167,20 @@ async def handle_photo(message: Message, state: FSMContext):
         message_id=message.message_id,
         photo_s3_key=s3_key,
         tier="photo",  # Signal this is a photo (EXIF stripped by Telegram)
+        scenario="general",  # General analysis (no specific threat scenario)
         priority=priority
     )
     enqueue_duration = (time.time() - stage_start) * 1000
 
-    logger.info(f"[Bot] ⏱️  STAGE 4: Enqueued job in {enqueue_duration:.0f}ms | job_id={job_id}")
+    logger.info(f"[Bot] ⏱️  STAGE 4: Enqueued job in {enqueue_duration:.0f}ms | job_id={job_id} | scenario=general")
 
-    # Immediate response
+    # Immediate response - informative message
     await message.answer(
-        "🔍 <b>Your photo is in the queue!</b>\n\n"
-        "⏱ Analysis will take 20-30 seconds\n"
-        "📲 I'll send you the result when it's ready\n\n"
-        f"<code>Job ID: {job_id[:8]}</code>",
+        "🔍 <b>Analyzing your photo...</b>\n\n"
+        "📸 Checking technical parameters and metadata\n"
+        "🤖 Running AI detection models\n"
+        "⏱ Analysis takes 20-30 seconds\n\n"
+        "📲 I'll send you the detailed report when ready",
         parse_mode="HTML"
     )
 
@@ -335,21 +337,23 @@ async def handle_document(message: Message, state: FSMContext):
         message_id=message.message_id,
         photo_s3_key=s3_key,
         tier=document_tier,  # Signal this is a document (preserve EXIF)
+        scenario="general",  # General analysis (no specific threat scenario)
         priority=priority
     )
     enqueue_duration = (time.time() - stage_start) * 1000
 
-    logger.info(f"[Bot] ⏱️  STAGE 4: Enqueued job in {enqueue_duration:.0f}ms | job_id={job_id}")
+    logger.info(f"[Bot] ⏱️  STAGE 4: Enqueued job in {enqueue_duration:.0f}ms | job_id={job_id} | scenario=general")
 
     # Response with EXIF info
     await message.answer(
         "✅ <b>File received with FULL metadata!</b>\n\n"
-        "🔬 Running <b>detailed analysis</b> with EXIF validation\n"
-        "⏱ This will take 20-30 seconds\n"
-        "📲 I'll send you the complete result\n\n"
-        f"<code>Job ID: {job_id[:8]}</code>\n\n"
-        "💡 <b>Note:</b> Files preserve all camera metadata,\n"
-        "giving much more accurate results than photos!",
+        "🔬 Running <b>detailed forensic analysis</b>:\n"
+        "📸 EXIF validation & camera signatures\n"
+        "🤖 AI detection models\n"
+        "🔍 Pixel-level integrity check\n\n"
+        "⏱ Analysis takes 20-30 seconds\n"
+        "📲 Detailed report coming soon...\n\n"
+        "💡 <b>Tip:</b> Files preserve metadata for maximum accuracy!",
         parse_mode="HTML"
     )
 
