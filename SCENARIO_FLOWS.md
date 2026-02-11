@@ -975,3 +975,296 @@ CREATE INDEX idx_analyses_scenario ON analyses(scenario);
 ---
 
 **Built with empathy to fight deepfake blackmail** 💙
+
+---
+
+## 🔍 General Analysis Scenario (NEW in v0.3.0)
+
+**Target Audience**: Users who send photos directly without scenario selection
+
+**Tone**: Informative, educational, neutral
+
+**Goal**: Provide technical analysis with educational resources
+
+### Flow Diagram
+
+```
+User sends photo DIRECTLY (no /start, no scenario selection)
+  ↓
+┌─────────────────────────────────────────┐
+│ Step 1: Smart Detection                │
+│ ──────────────────────────────────────  │
+│ Bot detects: photo without scenario     │
+│ Auto-assigns: scenario="general"        │
+│ Message: "🔍 Analyzing your photo..."   │
+│          "📸 Checking parameters"       │
+│          "🤖 Running AI models"         │
+│ State: No FSM (stateless flow)         │
+└─────────────────────────────────────────┘
+  ↓
+[Photo uploaded to S3]
+  ↓
+┌─────────────────────────────────────────┐
+│ Step 2: Background Analysis            │
+│ ──────────────────────────────────────  │
+│ • Upload to S3                          │
+│ • Enqueue with scenario="general"       │
+│ • Worker performs full analysis         │
+│ • Generate Report ID: ANL-YYYYMMDD-hash │
+│ • Processing time: 20-30 seconds        │
+└─────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────┐
+│ Step 3: Full Forensic Results          │
+│ ──────────────────────────────────────  │
+│ Message format (SAME AS PRO TIER):      │
+│                                         │
+│ 🤖 AI-GENERATED (90.0%)                 │
+│                                         │
+│ ⏱ Analysis time: 0.4s                  │
+│                                         │
+│ 🗂 DIGITAL FOOTPRINT:                   │
+│ 📅 Captured: No timestamp (suspicious)  │
+│ 🛠 Created with: Unknown/Stripped       │
+│ 📱 Device: No Camera Data (AI Signature)│
+│ 📍 GPS: None Detected                   │
+│                                         │
+│ ⚠️ RED FLAGS:                           │
+│ • Metadata: Stripped/Manipulated (90/100)│
+│ • GPS data missing                      │
+│ • Missing timestamps                    │
+│ • Frequency Analysis: AI artifacts      │
+│                                         │
+│ 📄 Analysis ID: ANL-20260209-3cc24ea8   │
+└─────────────────────────────────────────┘
+  ↓
+┌─────────────────────────────────────────┐
+│ Step 4: Educational Buttons             │
+│ ──────────────────────────────────────  │
+│ Keyboard:                               │
+│ ┌─────────────────────────────────────┐ │
+│ │ ℹ️ What is AI-generated content?   │ │
+│ ├─────────────────────────────────────┤ │
+│ │ 🔍 How to spot fake images          │ │
+│ ├─────────────────────────────────────┤ │
+│ │ 📤 Share Result                     │ │
+│ ├─────────────────────────────────────┤ │
+│ │ 🔙 Back to Main Menu                │ │
+│ └─────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+### Educational Content
+
+#### ℹ️ What is AI-Generated Content?
+
+When user clicks this button:
+
+```
+ℹ️ What is AI-Generated Content?
+
+AI image generators like Midjourney, DALL-E, Stable Diffusion, 
+and others can create photorealistic images from text descriptions.
+
+Common Uses:
+• Art and design
+• Marketing materials
+• Social media content
+• Unfortunately: deepfakes and scams
+
+How We Detect It:
+🔍 Watermark analysis
+📸 Metadata inspection
+🤖 AI pattern detection
+🔬 Pixel-level forensics
+
+Our AI detection models analyze multiple layers to determine 
+if an image is synthetic or authentic.
+```
+
+#### 🔍 How to Spot Fake Images
+
+When user clicks this button:
+
+```
+🔍 How to Spot Fake Images
+
+🚩 Visual Red Flags:
+• Unnatural lighting or shadows
+• Distorted hands or fingers
+• Blurry or missing text
+• Warped backgrounds
+• Asymmetric faces
+• Impossible physics
+
+📱 Technical Signs:
+• Missing EXIF metadata
+• No camera/device info
+• Suspicious file creation dates
+• AI software signatures
+
+✅ Authentic Photos Usually Have:
+• Camera make/model
+• GPS coordinates
+• Original timestamp
+• Realistic imperfections
+
+💡 Pro Tip: Always cross-check multiple sources 
+and trust your instincts if something feels "off"!
+```
+
+### Implementation Details
+
+**Files Modified:**
+- `app/bot/handlers/photo.py`: Added `scenario="general"` to enqueue_analysis calls
+- `app/services/notifications.py`: Added General scenario keyboard and messaging
+- `app/bot/handlers/callbacks.py`: Added handlers for `general:ai_info` and `general:spotting_guide`
+
+**Trigger Conditions:**
+1. User sends photo without `/start` command
+2. User sends document without scenario selection
+3. User returns from scenario menu and sends photo
+
+**Key Features:**
+- Full forensic analysis (same as Adult/Teenager scenarios)
+- Educational content for learning
+- Shareable results
+- Easy access to scenario selection
+
+**Use Cases:**
+- Journalists verifying image authenticity
+- Social media users checking viral content
+- Researchers analyzing synthetic media
+- General curiosity about image origin
+
+### Comparison with Other Scenarios
+
+| Feature | General | Adult Blackmail | Teenager SOS |
+|---------|---------|-----------------|--------------|
+| **Full Analysis** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **PDF Report** | 🚧 Coming | 🚧 Coming | 🚧 Coming |
+| **Counter-measures** | ❌ No | ✅ Yes | ❌ No |
+| **Parent Guides** | ❌ No | ❌ No | ✅ Yes |
+| **Educational Content** | ✅ Yes | ❌ No | ❌ No |
+| **Share Functionality** | ✅ Yes | ❌ No | ❌ No |
+| **Tone** | Neutral | Clinical | Supportive |
+
+### Future Enhancements
+
+**Planned for v0.4.0:**
+- PDF report generation for general scenario
+- Batch analysis (multiple photos)
+- Comparison mode (original vs suspect)
+- Historical analysis tracking
+- Export to other platforms
+
+---
+
+## 🔄 Scenario Context Propagation (Updated)
+
+### How Scenario Flows Through the System
+
+```
+User Action
+  ↓
+Bot Handler (scenarios.py OR photo.py)
+  ↓
+Assigns scenario: "adult_blackmail" | "teenager_sos" | "general"
+  ↓
+Queue.enqueue_analysis(scenario=...)
+  ↓
+RQ Worker (tasks.py)
+  ↓
+FraudLens API (/verify endpoint)
+  ↓
+Analysis Result with scenario context
+  ↓
+Notification Service (notifications.py)
+  ↓
+Scenario-Specific Keyboard & Messaging
+  ↓
+User receives result with appropriate buttons
+```
+
+### Scenario Values
+
+- `"adult_blackmail"` - Adult facing blackmail
+- `"teenager_sos"` - Teenager in distress
+- `"general"` - Direct photo upload (NEW in v0.3.0)
+- `None` - **DEPRECATED** (replaced by "general")
+
+### Database Schema
+
+```sql
+-- analyses table
+CREATE TABLE analyses (
+    analysis_id VARCHAR(50) PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    scenario VARCHAR(50),  -- Can be: adult_blackmail, teenager_sos, general
+    verdict VARCHAR(50),
+    confidence FLOAT,
+    fraudlens_result JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Scenario distribution query
+SELECT 
+    scenario, 
+    COUNT(*) as count,
+    ROUND(AVG(confidence * 100), 2) as avg_confidence
+FROM analyses
+GROUP BY scenario;
+```
+
+### Migration Notes (v0.2.x → v0.3.0)
+
+**Before:**
+- scenario=None → Generic "Share Result" button
+- Free tier users → Basic message
+- Pro tier users → Full message
+
+**After:**
+- scenario=None → **Replaced by** scenario="general"
+- All users → Full forensic message (PRO tier)
+- General scenario → Educational buttons
+
+**Database Impact:**
+- Old analyses with scenario=NULL still work
+- New analyses use scenario="general"
+- No migration required
+
+---
+
+## 📊 Scenario Analytics (v0.3.0)
+
+### Key Metrics to Track
+
+```python
+# Scenario distribution
+SELECT 
+    scenario,
+    COUNT(*) as total_analyses,
+    COUNT(DISTINCT user_id) as unique_users,
+    ROUND(AVG(CASE WHEN verdict = 'ai_generated' THEN 1 ELSE 0 END) * 100, 2) as ai_detection_rate
+FROM analyses
+WHERE created_at >= NOW() - INTERVAL '30 days'
+GROUP BY scenario;
+
+# Expected results (example):
+# scenario          | total_analyses | unique_users | ai_detection_rate
+# ──────────────────┼────────────────┼──────────────┼──────────────────
+# adult_blackmail   |  1,234         |  987         |  78.5%
+# teenager_sos      |    456         |  321         |  82.3%
+# general           |  8,901         | 7,654        |  45.2%
+```
+
+### Interpretation
+
+- **Adult Blackmail**: High AI detection rate (victims often targeted with AI)
+- **Teenager SOS**: Very high AI detection rate (sextortion campaigns)
+- **General**: Lower AI rate (journalists, researchers, casual users)
+
+---
+
+**Last Updated**: 2026-02-09 (v0.3.0)
+**Maintainer**: TruthSnap Development Team

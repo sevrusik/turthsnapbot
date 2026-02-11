@@ -215,46 +215,83 @@ curl -X POST http://localhost:8000/api/v1/consumer/verify \
 **For adults being blackmailed with alleged intimate photos**
 
 **Flow:**
-1. Photo analysis with forensic evidence (SHA-256 hash, Report ID)
-2. Generate legal-grade PDF report
-3. Counter-measures:
-   - Safe Response Generator (AI-crafted responses)
-   - Links to StopNCII, FBI IC3
-   - Educational resources
+1. Full forensic analysis with detailed digital footprint
+2. Counter-measures and resources
+3. Educational content about blackmail prevention
 
-**Tone:** Cold, clinical, professional, legal-focused
+**Features:**
+- 🗂 Complete EXIF metadata analysis
+- ⚠️ Comprehensive red flags detection
+- 🛡️ Counter-measures guidance
+- 🔙 Easy navigation
+
+**Tone:** Professional, clinical, evidence-based
 
 ### 🆘 Teenager SOS Scenario
 
 **For teenagers facing sextortion**
 
 **Flow:**
-1. Psychological stop message ("Breathe. You are safe.")
-2. Photo analysis with empathetic language
-3. How to tell parents (conversation scripts)
-4. Emergency protection:
-   - Take It Down (NCMEC anonymous removal)
-   - FBI Tips for Teens
-   - CyberTipline reporting
+1. Psychological safety message
+2. Full forensic analysis (same as adult)
+3. Parent communication guidance
+4. Emergency protection resources
 
-**Tone:** Empathetic, supportive, educational
+**Features:**
+- 🤝 How to tell parents (conversation scripts)
+- 🚫 Stop the spread resources (Take It Down, NCMEC)
+- 📚 Educational content about sextortion
+- 🔙 Safe navigation options
+
+**Tone:** Empathetic, supportive, age-appropriate
+
+### 🔍 General Analysis (NEW)
+
+**For users who send photos directly without scenario selection**
+
+**Flow:**
+1. Automatic technical analysis
+2. Educational resources about AI detection
+3. Sharing capabilities
+
+**Features:**
+- ℹ️ What is AI-generated content?
+- 🔍 How to spot fake images (visual & technical signs)
+- 📤 Share analysis results
+- 🔙 Access to scenario selection
+
+**Tone:** Informative, educational, neutral
 
 ---
 
-## 💎 Subscription Tiers
+## 💎 Analysis Features
 
-### Free
-- 3 checks/day
-- Basic verdict
-- 20-30 sec processing
-- Scenario-based support
+### ✅ Available Now (All Users)
 
-### Pro ($9.99/mo)
-- Unlimited checks
-- Detailed forensic reports
-- PDF downloads
+**Full Forensic Analysis:**
+- 🗂 Complete digital footprint (EXIF, GPS, timestamps)
+- ⚠️ Comprehensive red flags detection
+- 🤖 Multi-model AI detection ensemble
+- 🔬 Pixel-level integrity analysis
+- ⏱ 20-30 second processing time
+
+**Scenario-Specific Support:**
+- 🛡️ Counter-measures (Adult Blackmail)
+- 🤝 Parent communication guides (Teenager SOS)
+- ℹ️ Educational resources (General Analysis)
+
+### 🚧 Coming Soon
+
+**PDF Reports (In Testing):**
+- Legal-grade forensic reports
+- Court-ready evidence documentation
+- Downloadable analysis summaries
+
+**Premium Features (Future):**
+- Unlimited checks (currently: usage-based limits)
 - Priority processing (10-15 sec)
-- All scenario features
+- Batch analysis
+- API access for partners
 
 ---
 
