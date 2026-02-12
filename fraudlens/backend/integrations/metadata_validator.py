@@ -98,10 +98,33 @@ class MetadataValidator:
             # Extract detailed EXIF with exiftool (includes MakerNote fields)
             exiftool_data = self._extract_exiftool(image_bytes)
 
-            # Run 10-layer validation
+            # Merge exiftool data into exif_data (exiftool has priority for conflicts)
+            # This allows all checks to access both PIL EXIF and exiftool data
+            if exiftool_data:
+                # Store original exif_data count for logging
+                original_count = len(exif_data)
+                # Merge - exiftool data takes precedence
+                exif_data.update(exiftool_data)
+                logger.info(f"[Validator] Merged EXIF data: PIL={original_count} + exiftool={len(exiftool_data)} = {len(exif_data)} total fields")
+
+            # Run 11-layer validation (added Layer 0: Camera Authenticity)
             red_flags = []
             checks = []
             score = 0
+
+            # Layer 0: Camera Authenticity (Serial Numbers) - BONUS for real cameras
+            camera_auth_check = self._check_camera_authenticity(exif_data)
+            checks.append(camera_auth_check)
+            if camera_auth_check["score"] != 0:  # Can be negative (bonus) or positive
+                if camera_auth_check["score"] < 0:
+                    # Bonus - reduces fraud score
+                    score += camera_auth_check["score"]
+                    logger.info(f"[Validator] ✅ Camera Authenticity BONUS: {camera_auth_check['score']} pts | reason={camera_auth_check.get('reason')}")
+                else:
+                    # Penalty (shouldn't happen for this check, but handle it)
+                    red_flags.append(camera_auth_check)
+                    score += camera_auth_check["score"]
+                    logger.info(f"[Validator] Camera Authenticity check: +{camera_auth_check['score']} pts | reason={camera_auth_check.get('reason')}")
 
             # Layer 1: Apple Hardware Token (use exiftool data)
             apple_check = self._check_apple_runtime(exif_data, exiftool_data)
@@ -215,11 +238,12 @@ class MetadataValidator:
             }
 
     def _extract_exif(self, image: Image.Image) -> Dict:
-        """Extract EXIF data from image"""
+        """Extract EXIF data from image using modern getexif() method"""
         exif_data = {}
 
         try:
-            exif = image._getexif()
+            # Use modern getexif() instead of deprecated _getexif()
+            exif = image.getexif()
             if exif:
                 for tag_id, value in exif.items():
                     tag = TAGS.get(tag_id, tag_id)
@@ -298,6 +322,85 @@ class MetadataValidator:
             logger.error(f"[Validator] exiftool extraction failed: {e}", exc_info=True)
 
         return {}
+
+    def _check_camera_authenticity(self, exif_data: Dict) -> Dict:
+        """
+        Layer 0: Camera Authenticity (Serial Numbers)
+
+        Serial numbers = SMOKING GUN for real cameras.
+        AI generators CANNOT create valid camera/lens serial numbers.
+
+        Returns NEGATIVE score = BONUS for authentic cameras
+        """
+        # Extract serial numbers from merged EXIF data
+        camera_serial = exif_data.get("SerialNumber") or \
+                       exif_data.get("EXIF:SerialNumber") or \
+                       exif_data.get("MakerNotes:InternalSerialNumber") or \
+                       exif_data.get("MakerNotes:SerialNumber")
+
+        lens_serial = exif_data.get("LensSerialNumber") or \
+                     exif_data.get("EXIF:LensSerialNumber") or \
+                     exif_data.get("MakerNotes:LensSerialNumber")
+
+        # Check camera make/model for context
+        camera_make = exif_data.get("Make", "")
+        camera_model = exif_data.get("Model", "")
+
+        # Both camera AND lens serials = highly authentic
+        if camera_serial and lens_serial:
+            logger.info(f"[Validator] ✅ Camera Authenticity BONUS: Camera SN={camera_serial}, Lens SN={lens_serial}")
+            return {
+                "layer": "Camera Authenticity",
+                "status": "PASS",
+                "score": -30,  # NEGATIVE = BONUS (reduces fraud score)
+                "reason": f"Camera + Lens serials verified ({camera_make} {camera_model})",
+                "severity": "bonus",
+                "description": "Serial numbers = smoking gun for real camera (AI cannot fake these)",
+                "details": {
+                    "camera_serial": str(camera_serial)[:8] + "***",  # Partial for privacy
+                    "lens_serial": str(lens_serial)[:6] + "***",
+                    "camera": f"{camera_make} {camera_model}"
+                }
+            }
+
+        # Only camera serial = still good
+        if camera_serial:
+            logger.info(f"[Validator] ✅ Camera Authenticity: Camera SN={camera_serial}")
+            return {
+                "layer": "Camera Authenticity",
+                "status": "PASS",
+                "score": -20,  # NEGATIVE = BONUS
+                "reason": f"Camera serial verified ({camera_make} {camera_model})",
+                "severity": "bonus",
+                "description": "Camera serial number indicates real camera",
+                "details": {
+                    "camera_serial": str(camera_serial)[:8] + "***",
+                    "camera": f"{camera_make} {camera_model}"
+                }
+            }
+
+        # Only lens serial (rare, but valid)
+        if lens_serial:
+            logger.info(f"[Validator] ✅ Camera Authenticity: Lens SN={lens_serial}")
+            return {
+                "layer": "Camera Authenticity",
+                "status": "PASS",
+                "score": -15,  # NEGATIVE = BONUS
+                "reason": "Lens serial verified",
+                "severity": "bonus",
+                "description": "Lens serial number indicates real lens",
+                "details": {
+                    "lens_serial": str(lens_serial)[:6] + "***"
+                }
+            }
+
+        # No serials found - neutral (not all cameras include serials in EXIF)
+        return {
+            "layer": "Camera Authenticity",
+            "status": "N/A",
+            "score": 0,
+            "reason": "No serial numbers in EXIF (not all cameras include these)"
+        }
 
     def _check_apple_runtime(self, exif_data: Dict, exiftool_data: Dict) -> Dict:
         """
@@ -479,12 +582,23 @@ class MetadataValidator:
         - AI generation tools (definitive proof)
         - Professional photo editing (legitimate use, reduced penalty)
         - Native apps (acceptable)
+
+        Checks BOTH Software (EXIF) and CreatorTool (XMP) fields
         """
         software = exif_data.get("Software", "").lower()
+        # Also check CreatorTool (XMP metadata) - often contains Lightroom info
+        creator_tool = exif_data.get("XMP:CreatorTool", "") or exif_data.get("CreatorTool", "")
+        if creator_tool:
+            creator_tool = str(creator_tool).lower()
+        else:
+            creator_tool = ""
+
+        # Combine both fields for comprehensive check
+        combined_software = software + " " + creator_tool
 
         # Check 1: AI generators (smoking gun - 100% AI)
         for tool in self.AI_GENERATION_TOOLS:
-            if tool in software:
+            if tool in combined_software:
                 return {
                     "layer": "Software Manipulation",
                     "status": "FAIL",
@@ -496,33 +610,50 @@ class MetadataValidator:
                 }
 
         # Check 2: Trusted professional software (legitimate photography)
+        # Check CreatorTool FIRST (higher priority for Lightroom workflow)
+        best_match = None
+        best_trust_level = None
+
         for trusted_name, trust_info in self.TRUSTED_PHOTO_SOFTWARE.items():
-            if trusted_name in software:
-                # Reduce penalty significantly for professional photo tools
-                penalty_reduction = trust_info["penalty_reduction"]
-                adjusted_score = max(0, self.PHOTOSHOP_EDITING - penalty_reduction)
+            if trusted_name in combined_software:
+                # Prefer matches from CreatorTool (higher trust for RAW workflow)
+                if trusted_name in creator_tool:
+                    best_match = (trusted_name, trust_info)
+                    best_trust_level = trust_info["trust_level"]
+                    break  # CreatorTool match = highest priority
+                elif not best_match:
+                    best_match = (trusted_name, trust_info)
+                    best_trust_level = trust_info["trust_level"]
 
-                logger.info(
-                    f"[Validator] Trusted software '{trusted_name}' detected | "
-                    f"Base penalty: {self.PHOTOSHOP_EDITING} → Adjusted: {adjusted_score} "
-                    f"(reduced by {penalty_reduction})"
-                )
+        if best_match:
+            trusted_name, trust_info = best_match
+            # Reduce penalty significantly for professional photo tools
+            penalty_reduction = trust_info["penalty_reduction"]
+            adjusted_score = max(0, self.PHOTOSHOP_EDITING - penalty_reduction)
 
-                return {
-                    "layer": "Software Manipulation",
-                    "status": "WARN" if adjusted_score > 20 else "PASS",
-                    "score": adjusted_score,
-                    "reason": f"Professional photo software: {trusted_name}",
-                    "severity": "low",
-                    "description": f"Legitimate photo editing tool (trust level: {trust_info['trust_level']})",
-                    "requires_visual_proof": True,  # Need FFT/visual evidence for final verdict
-                    "trust_level": trust_info["trust_level"]
-                }
+            # Log which field matched (CreatorTool or Software)
+            matched_in = "CreatorTool" if trusted_name in creator_tool else "Software"
+            logger.info(
+                f"[Validator] Trusted software '{trusted_name}' detected in {matched_in} | "
+                f"Base penalty: {self.PHOTOSHOP_EDITING} → Adjusted: {adjusted_score} "
+                f"(reduced by {penalty_reduction})"
+            )
+
+            return {
+                "layer": "Software Manipulation",
+                "status": "WARN" if adjusted_score > 20 else "PASS",
+                "score": adjusted_score,
+                "reason": f"Professional photo software: {trusted_name} (from {matched_in})",
+                "severity": "low",
+                "description": f"Legitimate photo editing tool (trust level: {trust_info['trust_level']})",
+                "requires_visual_proof": True,  # Need FFT/visual evidence for final verdict
+                "trust_level": trust_info["trust_level"]
+            }
 
         # Check 3: Other editing tools (medium suspicion)
         suspicious_editing = ["gimp", "paint.net", "pixelmator"]
         for tool in suspicious_editing:
-            if tool in software:
+            if tool in combined_software:
                 return {
                     "layer": "Software Manipulation",
                     "status": "WARN",
@@ -535,12 +666,12 @@ class MetadataValidator:
         # Check 4: Native photo apps (acceptable)
         native_apps = ["ios", "android", "windows photos", "photos app", "google photos"]
         for app in native_apps:
-            if app in software:
+            if app in combined_software:
                 return {
                     "layer": "Software Manipulation",
                     "status": "PASS",
                     "score": 0,
-                    "reason": f"Native photo app: {software}",
+                    "reason": f"Native photo app: {software or creator_tool}",
                     "requires_visual_proof": False
                 }
 
