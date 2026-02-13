@@ -90,13 +90,17 @@ class MetadataValidator:
             }
         """
         try:
+            logger.info(f"[Validator] 🔍 Starting validation | telegram_mode={self.telegram_mode} | bytes={len(image_bytes)}")
+
             image = Image.open(io.BytesIO(image_bytes))
 
             # Extract EXIF (basic)
             exif_data = self._extract_exif(image)
+            logger.info(f"[Validator] PIL extracted {len(exif_data)} basic EXIF fields")
 
             # Extract detailed EXIF with exiftool (includes MakerNote fields)
             exiftool_data = self._extract_exiftool(image_bytes)
+            logger.info(f"[Validator] exiftool extracted {len(exiftool_data)} detailed fields")
 
             # Merge exiftool data into exif_data (exiftool has priority for conflicts)
             # This allows all checks to access both PIL EXIF and exiftool data
@@ -281,12 +285,14 @@ class MetadataValidator:
         Returns:
             Dict with all EXIF fields from exiftool
         """
+        logger.info(f"[Validator] 🔧 Starting exiftool extraction for {len(image_bytes)} bytes")
+
         try:
             from exiftool import ExifToolHelper
+            logger.info(f"[Validator] ✅ ExifToolHelper imported successfully")
+
             import tempfile
             import os
-
-            logger.info(f"[Validator] Starting exiftool extraction for {len(image_bytes)} bytes")
 
             with ExifToolHelper() as et:
                 # Write bytes to temporary location for exiftool
@@ -315,12 +321,18 @@ class MetadataValidator:
 
                     return result
                 else:
-                    logger.warning(f"[Validator] exiftool returned empty metadata")
+                    logger.warning(f"[Validator] ⚠️  exiftool returned empty metadata")
                     return {}
 
+        except ImportError as e:
+            logger.error(f"[Validator] ❌ PyExifTool NOT installed: {e}")
+            logger.error(f"[Validator] 💡 Install with: pip install PyExifTool==0.5.6")
+            return {}
         except Exception as e:
-            logger.error(f"[Validator] exiftool extraction failed: {e}", exc_info=True)
+            logger.error(f"[Validator] ❌ exiftool extraction failed: {e}", exc_info=True)
+            return {}
 
+        logger.warning(f"[Validator] ⚠️  Exiftool extraction completed with no data")
         return {}
 
     def _check_camera_authenticity(self, exif_data: Dict) -> Dict:
